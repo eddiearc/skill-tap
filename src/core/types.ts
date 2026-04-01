@@ -41,6 +41,8 @@ export interface SkilltapConfig {
   token?: string
   /** Target agent ids to symlink skills to, e.g. ['cursor', 'codex'] */
   agents?: string[]
+  /** Additional custom directories to symlink skills to */
+  dirs?: string[]
 }
 
 /** Skilltap config file stored at ~/.skilltap/config.json */
@@ -49,4 +51,5 @@ export interface SkilltapConfigFile {
   installDir: string
   token?: string
   agents?: string[]
+  dirs?: string[]
 }

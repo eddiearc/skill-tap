@@ -18,8 +18,17 @@ export class Skilltap {
     this.sources = config.sources.map(parseSource)
     this.installDir = config.installDir
     this.token = config.token
+
+    // Collect symlink targets: agent dirs + custom dirs
+    const dirs: string[] = []
     if (config.agents?.length) {
-      this.symlinkDirs = resolveAgentDirs(config.agents)
+      dirs.push(...resolveAgentDirs(config.agents))
+    }
+    if (config.dirs?.length) {
+      dirs.push(...config.dirs)
+    }
+    if (dirs.length > 0) {
+      this.symlinkDirs = [...new Set(dirs)] // deduplicate
     }
   }
 
