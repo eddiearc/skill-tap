@@ -29,6 +29,7 @@ vi.mock('../../src/core/installer.js', () => ({
 import { Skilltap } from '../../src/core/client.js'
 import { listRepoDirs, getSkillMd, parseFrontmatter } from '../../src/core/github.js'
 import { installSkill, uninstallSkill, listInstalled } from '../../src/core/installer.js'
+import { resolveAgentDirs } from '../../src/core/agents.js'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -230,5 +231,72 @@ describe('update', () => {
     const updated = await st.update()
 
     expect(updated).toEqual([])
+  })
+})
+
+// --- agents & dirs ---
+
+describe('agents config', () => {
+  it('passes resolved agent dirs as symlinkDirs to installSkill', async () => {
+    vi.mocked(getSkillMd).mockResolvedValue('content')
+
+    const st = new Skilltap({ sources: ['test/skills'], agents: ['claude-code', 'cursor'] })
+    await st.install('pdf')
+
+    expect(resolveAgentDirs).toHaveBeenCalledWith(['claude-code', 'cursor'])
+    expect(installSkill).toHaveBeenCalledWith(
+      expect.anything(), 'pdf', undefined, undefined,
+      ['/mock-home/.claude-code/skills', '/mock-home/.cursor/skills'],
+    )
+  })
+
+  it('passes resolved agent dirs to uninstallSkill', async () => {
+    const st = new Skilltap({ sources: ['test/skills'], agents: ['claude-code'] })
+    await st.uninstall('pdf')
+
+    expect(uninstallSkill).toHaveBeenCalledWith(
+      'pdf', undefined, ['/mock-home/.claude-code/skills'],
+    )
+  })
+
+  it('does not pass symlinkDirs when no agents configured', async () => {
+    vi.mocked(getSkillMd).mockResolvedValue('content')
+
+    const st = new Skilltap({ sources: ['test/skills'] })
+    await st.install('pdf')
+
+    expect(installSkill).toHaveBeenCalledWith(
+      expect.anything(), 'pdf', undefined, undefined, undefined,
+    )
+  })
+})
+
+describe('dirs config', () => {
+  it('passes custom dirs as symlinkDirs', async () => {
+    vi.mocked(getSkillMd).mockResolvedValue('content')
+
+    const st = new Skilltap({ sources: ['test/skills'], dirs: ['/custom/skills'] })
+    await st.install('pdf')
+
+    expect(installSkill).toHaveBeenCalledWith(
+      expect.anything(), 'pdf', undefined, undefined, ['/custom/skills'],
+    )
+  })
+
+  it('merges agents and dirs, deduplicates', async () => {
+    vi.mocked(getSkillMd).mockResolvedValue('content')
+
+    const st = new Skilltap({
+      sources: ['test/skills'],
+      agents: ['cursor'],
+      dirs: ['/mock-home/.cursor/skills', '/extra/skills'],
+    })
+    await st.install('pdf')
+
+    // /mock-home/.cursor/skills appears in both agents and dirs, should be deduplicated
+    expect(installSkill).toHaveBeenCalledWith(
+      expect.anything(), 'pdf', undefined, undefined,
+      ['/mock-home/.cursor/skills', '/extra/skills'],
+    )
   })
 })
