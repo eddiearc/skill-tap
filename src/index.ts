@@ -1,4 +1,5 @@
 export { Skilltap } from './core/client.js'
+export { AGENTS, getAgent, getAgentIds, detectInstalledAgents, resolveAgentDirs } from './core/agents.js'
 export type {
   SkilltapConfig,
   TapSource,
@@ -6,3 +7,4 @@ export type {
   RemoteSkill,
   InstalledSkill,
 } from './core/types.js'
+export type { AgentTarget } from './core/agents.js'

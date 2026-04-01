@@ -11,6 +11,10 @@ vi.mock('../../src/core/github.js', () => ({
   parseFrontmatter: vi.fn().mockReturnValue(null),
 }))
 
+vi.mock('../../src/core/agents.js', () => ({
+  resolveAgentDirs: vi.fn((ids: string[]) => ids.map((id) => `/mock-home/.${id}/skills`)),
+}))
+
 vi.mock('../../src/core/installer.js', () => ({
   installSkill: vi.fn().mockResolvedValue({
     name: 'pdf',
@@ -155,7 +159,7 @@ describe('install', () => {
 
     expect(result.name).toBe('pdf')
     expect(installSkill).toHaveBeenCalledWith(
-      { owner: 'org2', repo: 'skills' }, 'pdf', undefined, undefined,
+      { owner: 'org2', repo: 'skills' }, 'pdf', undefined, undefined, undefined,
     )
   })
 
@@ -175,7 +179,7 @@ describe('uninstall', () => {
     const st = new Skilltap({ sources: ['test/skills'] })
     await st.uninstall('pdf')
 
-    expect(uninstallSkill).toHaveBeenCalledWith('pdf', undefined)
+    expect(uninstallSkill).toHaveBeenCalledWith('pdf', undefined, undefined)
   })
 })
 

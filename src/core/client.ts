@@ -6,16 +6,21 @@ import type {
 } from './types.js'
 import { parseSource, listRepoDirs, getSkillMd, parseFrontmatter } from './github.js'
 import { installSkill, uninstallSkill, listInstalled } from './installer.js'
+import { resolveAgentDirs } from './agents.js'
 
 export class Skilltap {
   private sources: TapSource[]
   private installDir?: string
   private token?: string
+  private symlinkDirs?: string[]
 
   constructor(config: SkilltapConfig) {
     this.sources = config.sources.map(parseSource)
     this.installDir = config.installDir
     this.token = config.token
+    if (config.agents?.length) {
+      this.symlinkDirs = resolveAgentDirs(config.agents)
+    }
   }
 
   /** List all available skills from all sources */
@@ -55,7 +60,7 @@ export class Skilltap {
     for (const source of this.sources) {
       const content = await getSkillMd(source, skillName, this.token)
       if (content) {
-        return installSkill(source, skillName, this.installDir, this.token)
+        return installSkill(source, skillName, this.installDir, this.token, this.symlinkDirs)
       }
     }
     throw new Error(`Skill "${skillName}" not found in any source`)
@@ -63,7 +68,7 @@ export class Skilltap {
 
   /** Uninstall a skill */
   async uninstall(skillName: string): Promise<void> {
-    return uninstallSkill(skillName, this.installDir)
+    return uninstallSkill(skillName, this.installDir, this.symlinkDirs)
   }
 
   /** List locally installed skills */

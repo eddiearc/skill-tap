@@ -35,10 +35,12 @@ export interface InstalledSkill {
 export interface SkilltapConfig {
   /** GitHub repos to use as skill sources, e.g. ['anthropics/skills'] */
   sources: string[]
-  /** Local directory to install skills into (default: ~/.claude/skills) */
+  /** Primary directory to install skills into (default: ~/.claude/skills) */
   installDir?: string
   /** GitHub personal access token for private repos */
   token?: string
+  /** Target agent ids to symlink skills to, e.g. ['cursor', 'codex'] */
+  agents?: string[]
 }
 
 /** Skilltap config file stored at ~/.skilltap/config.json */
@@ -46,4 +48,5 @@ export interface SkilltapConfigFile {
   sources: string[]
   installDir: string
   token?: string
+  agents?: string[]
 }

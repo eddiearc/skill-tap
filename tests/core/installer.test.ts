@@ -10,6 +10,7 @@ vi.mock('node:fs/promises', () => ({
     readFile: vi.fn().mockResolvedValue(VALID_SKILL_MD),
     readdir: vi.fn().mockResolvedValue([]),
     rm: vi.fn().mockResolvedValue(undefined),
+    symlink: vi.fn().mockResolvedValue(undefined),
   },
 }))
 
@@ -107,6 +108,31 @@ describe('installSkill', () => {
     expect(fs.mkdir).toHaveBeenCalledWith('/mock-home/.claude/skills/pdf', { recursive: true })
     expect(result.path).toBe('/mock-home/.claude/skills/pdf')
   })
+
+  it('creates symlinks in other agent directories', async () => {
+    vi.mocked(downloadSkillDir).mockResolvedValue([])
+    vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
+    vi.mocked(parseFrontmatter).mockReturnValue(null)
+
+    await installSkill(source, 'pdf', '/install-dir', undefined, ['/cursor/skills', '/codex/skills'])
+
+    expect(fs.rm).toHaveBeenCalledWith('/cursor/skills/pdf', { recursive: true, force: true })
+    expect(fs.symlink).toHaveBeenCalledWith('/install-dir/pdf', '/cursor/skills/pdf')
+    expect(fs.rm).toHaveBeenCalledWith('/codex/skills/pdf', { recursive: true, force: true })
+    expect(fs.symlink).toHaveBeenCalledWith('/install-dir/pdf', '/codex/skills/pdf')
+  })
+
+  it('skips symlink for primary installDir', async () => {
+    vi.mocked(downloadSkillDir).mockResolvedValue([])
+    vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
+    vi.mocked(parseFrontmatter).mockReturnValue(null)
+
+    await installSkill(source, 'pdf', '/install-dir', undefined, ['/install-dir', '/cursor/skills'])
+
+    // symlink only called for cursor, not for install-dir itself
+    expect(fs.symlink).toHaveBeenCalledTimes(1)
+    expect(fs.symlink).toHaveBeenCalledWith('/install-dir/pdf', '/cursor/skills/pdf')
+  })
 })
 
 // --- uninstallSkill ---
@@ -122,6 +148,14 @@ describe('uninstallSkill', () => {
     await uninstallSkill('pdf')
 
     expect(fs.rm).toHaveBeenCalledWith('/mock-home/.claude/skills/pdf', { recursive: true, force: true })
+  })
+
+  it('removes symlinks from other agent directories', async () => {
+    await uninstallSkill('pdf', '/install-dir', ['/cursor/skills', '/codex/skills'])
+
+    expect(fs.rm).toHaveBeenCalledWith('/cursor/skills/pdf', { recursive: true, force: true })
+    expect(fs.rm).toHaveBeenCalledWith('/codex/skills/pdf', { recursive: true, force: true })
+    expect(fs.rm).toHaveBeenCalledWith('/install-dir/pdf', { recursive: true, force: true })
   })
 })
 
