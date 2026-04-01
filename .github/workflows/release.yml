@@ -2,8 +2,11 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - 'package.json'
+  # Also allow manual tag push
+  workflow_dispatch:
 
 jobs:
   release:
@@ -13,31 +16,71 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from package.json
+        id: version
+        run: echo "version=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag exists
+        id: check
+        run: |
+          if git rev-parse "${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip if already released
+        if: steps.check.outputs.exists == 'true'
+        run: echo "Tag ${{ steps.version.outputs.version }} already exists, skipping release."
 
       - uses: pnpm/action-setup@v4
+        if: steps.check.outputs.exists == 'false'
         with:
           version: 10
 
       - uses: actions/setup-node@v4
+        if: steps.check.outputs.exists == 'false'
         with:
           node-version: 22
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test
-      - run: pnpm build
+      - name: Install dependencies
+        if: steps.check.outputs.exists == 'false'
+        run: pnpm install --frozen-lockfile
 
-      - name: Set version from tag
-        run: npm version ${GITHUB_REF_NAME#v} --no-git-tag-version
+      - name: Test
+        if: steps.check.outputs.exists == 'false'
+        run: pnpm test
+
+      - name: Build
+        if: steps.check.outputs.exists == 'false'
+        run: pnpm build
+
+      - name: Set version from package.json
+        if: steps.check.outputs.exists == 'false'
+        run: npm version $(node -p "require('./package.json').version") --no-git-tag-version --allow-same-version
 
       - name: Upgrade npm for Trusted Publishing
+        if: steps.check.outputs.exists == 'false'
         run: npm install -g npm@latest
 
       - name: Publish to npm
+        if: steps.check.outputs.exists == 'false'
         run: npm publish --access public
 
+      - name: Create tag
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          git tag ${{ steps.version.outputs.version }}
+          git push origin ${{ steps.version.outputs.version }}
+
       - name: Create GitHub Release
+        if: steps.check.outputs.exists == 'false'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.version }}
           generate_release_notes: true
