@@ -8,7 +8,11 @@
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { findSkills } from '../github.js'
+
+const execFileAsync = promisify(execFile)
 import type { 
   Marketplace, 
   MarketplaceConfig, 
@@ -65,7 +69,7 @@ async function saveMarketplaceConfig(config: MarketplaceConfig): Promise<void> {
 export async function addMarketplace(
   name: string,
   type: 'github' | 'url' | 'local',
-  options: { repo?: string; url?: string; path?: string; branch?: string } = {}
+  options: { repo?: string; url?: string; path?: string; branch?: string; token?: string } = {}
 ): Promise<Marketplace> {
   const config = await loadMarketplaceConfig()
   
@@ -114,22 +118,43 @@ export async function getMarketplace(name: string): Promise<Marketplace | null> 
   return config.marketplaces[name] ?? null
 }
 
+/** Resolve a GitHub token from marketplace config, env var, or gh CLI */
+async function resolveGitHubToken(marketplace: Marketplace): Promise<string | undefined> {
+  // 1. Per-marketplace token
+  if (marketplace.token) return marketplace.token
+
+  // 2. Environment variable
+  if (process.env.GITHUB_TOKEN) return process.env.GITHUB_TOKEN
+
+  // 3. gh auth token
+  try {
+    const { stdout } = await execFileAsync('gh', ['auth', 'token'], { timeout: 5000 })
+    const token = stdout.trim()
+    if (token) return token
+  } catch {
+    // gh CLI not installed or not authenticated
+  }
+
+  return undefined
+}
+
 /** Discover skills from a marketplace by fetching its manifest or scanning repos */
 export async function discoverSkillsFromMarketplace(
   marketplace: Marketplace
 ): Promise<SkillEntry[]> {
   const skills: SkillEntry[] = []
-  
+
   if (marketplace.type === 'github' && marketplace.repo) {
     const [owner, repo] = marketplace.repo.split('/')
     if (!owner || !repo) {
       throw new Error(`Invalid marketplace repo: ${marketplace.repo}`)
     }
-    
+
     try {
+      const token = await resolveGitHubToken(marketplace)
       const discovered = await findSkills(
         { owner, repo, branch: marketplace.branch },
-        undefined, // token - could add token support later
+        token,
         '' // repo root
       )
       

@@ -39,6 +39,8 @@ export interface Marketplace {
   branch?: string
   /** Auto-update enabled */
   autoUpdate?: boolean
+  /** GitHub token for private repos */
+  token?: string
   /** When this marketplace was added */
   addedAt: string
 }
@@ -84,6 +86,8 @@ export interface MarketplaceConfigEntry {
   path?: string
   branch?: string
   autoUpdate?: boolean
+  /** GitHub token for private repos */
+  token?: string
   addedAt: string
 }
 
