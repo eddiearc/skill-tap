@@ -38,11 +38,32 @@ export function createMarketplaceCommands(program: Command): void {
     })
 
   marketplace
-    .command('add <name> <source>')
-    .description('Add a marketplace source (git URL or local path)')
+    .command('add <name-or-source> [source]')
+    .description('Add a marketplace source (git URL or local path). Single-arg: skilltap marketplace add owner/repo')
     .option('-b, --branch <branch>', 'Branch to use')
     .option('-s, --scan-path <path>', 'Custom path within repo to scan for skills (e.g. .agents/skills)')
-    .action(async (name: string, source: string, opts: { branch?: string; scanPath?: string }) => {
+    .action(async (nameOrSource: string, maybeSource: string | undefined, opts: { branch?: string; scanPath?: string }) => {
+      // Single-argument mode: auto-derive name from source
+      let name: string
+      let source: string
+      if (maybeSource === undefined) {
+        source = nameOrSource
+        // Derive name: owner from owner/repo, hostname from URLs, basename from local paths
+        if (source.includes('/') && !source.startsWith('http') && !source.startsWith('git@') && !source.startsWith('ssh://') && !source.startsWith('/') && !source.startsWith('.')) {
+          name = source.split('/')[0]! // owner/repo → owner
+        } else if (source.startsWith('git@')) {
+          const match = source.match(/git@[^:]+:(.+?)\//)
+          name = match ? match[1]! : source
+        } else if (source.startsWith('http://') || source.startsWith('https://')) {
+          try { name = new URL(source).pathname.split('/')[1] || source } catch { name = source }
+        } else {
+          name = source.split('/').pop()?.replace(/\.git$/, '') ?? source
+        }
+      } else {
+        name = nameOrSource
+        source = maybeSource
+      }
+
       try {
         if (source.startsWith('/') || source.startsWith('.') || source.match(/^[A-Za-z]:/)) {
           // Local path
@@ -59,13 +80,12 @@ export function createMarketplaceCommands(program: Command): void {
         } else if (source.includes('/') && source.split('/').length === 2 && !source.includes(' ')) {
           // Shorthand: owner/repo -> https://github.com/owner/repo.git
           const gitUrl = `https://github.com/${source}.git`
-          console.log(`Cloning ${source}...`)
           await addMarketplace(name, 'git', { gitUrl, branch: opts.branch, scanPath: opts.scanPath })
           console.log(`Added marketplace "${name}" from GitHub: ${source}`)
         } else {
           console.error(`Invalid source format: ${source}`)
           console.error('Supported formats:')
-          console.error('  owner/repo                     - GitHub shorthand')
+          console.error('  owner/repo                     - GitHub shorthand (name auto-derived)')
           console.error('  https://github.com/owner/repo  - HTTPS git URL')
           console.error('  https://gitlab.com/owner/repo  - Any git hosting platform')
           console.error('  git@host:owner/repo.git        - SSH git URL')
