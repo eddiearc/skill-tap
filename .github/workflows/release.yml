@@ -46,6 +46,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+          registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
         if: steps.check.outputs.exists == 'false'
@@ -61,11 +62,11 @@ jobs:
 
       - name: Set version from package.json
         if: steps.check.outputs.exists == 'false'
-        run: npm version $(node -p "require('./package.json').version") --no-git-tag-version --allow-same-version
+        run: npx npm@11 version $(node -p "require('./package.json').version") --no-git-tag-version --allow-same-version
 
       - name: Publish to npm
         if: steps.check.outputs.exists == 'false'
-        run: npm publish --access public --provenance
+        run: npx npm@11 publish --access public --provenance
 
       - name: Create tag
         if: steps.check.outputs.exists == 'false'
