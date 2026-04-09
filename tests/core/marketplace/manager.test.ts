@@ -340,6 +340,79 @@ describe('discoverSkillsFromMarketplace', () => {
   })
 })
 
+  it('discovers skills inside .agents and .claude directories', async () => {
+    vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
+
+    // Root has .agents, .claude, and .git directories
+    let readdirCallCount = 0
+    vi.mocked(fs.readdir).mockImplementation(async () => {
+      readdirCallCount++
+      if (readdirCallCount === 1) {
+        // Root level
+        return [
+          { name: '.git', isDirectory: () => true, isFile: () => false },
+          { name: '.agents', isDirectory: () => true, isFile: () => false },
+          { name: '.claude', isDirectory: () => true, isFile: () => false },
+          { name: 'node_modules', isDirectory: () => true, isFile: () => false },
+        ] as any
+      }
+      if (readdirCallCount === 2) {
+        // .agents dir
+        return [{ name: 'agent-skill', isDirectory: () => true, isFile: () => false }] as any
+      }
+      if (readdirCallCount === 3) {
+        // .claude dir
+        return [{ name: 'claude-skill', isDirectory: () => true, isFile: () => false }] as any
+      }
+      return []
+    })
+
+    vi.mocked(fs.readFile).mockImplementation(async (filePath: any) => {
+      const fp = String(filePath)
+      if (fp.includes('agent-skill') && fp.endsWith('SKILL.md')) {
+        return `---\nname: agent-skill\ndescription: From .agents\n---\n`
+      }
+      if (fp.includes('claude-skill') && fp.endsWith('SKILL.md')) {
+        return `---\nname: claude-skill\ndescription: From .claude\n---\n`
+      }
+      throw new Error('ENOENT')
+    })
+
+    const marketplace: Marketplace = {
+      name: 'test-mkt',
+      type: 'git',
+      gitUrl: 'https://github.com/org/repo.git',
+      addedAt: '2026-01-01',
+    }
+
+    const skills = await discoverSkillsFromMarketplace(marketplace)
+    expect(skills).toHaveLength(2)
+    const names = skills.map(s => s.name).sort()
+    expect(names).toEqual(['agent-skill', 'claude-skill'])
+  })
+
+  it('skips .git and node_modules directories', async () => {
+    vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
+
+    vi.mocked(fs.readdir).mockResolvedValueOnce([
+      { name: '.git', isDirectory: () => true, isFile: () => false },
+      { name: 'node_modules', isDirectory: () => true, isFile: () => false },
+      { name: '.github', isDirectory: () => true, isFile: () => false },
+      { name: '.vscode', isDirectory: () => true, isFile: () => false },
+      { name: '.idea', isDirectory: () => true, isFile: () => false },
+    ] as any)
+
+    const marketplace: Marketplace = {
+      name: 'test-mkt',
+      type: 'git',
+      gitUrl: 'https://github.com/org/repo.git',
+      addedAt: '2026-01-01',
+    }
+
+    const skills = await discoverSkillsFromMarketplace(marketplace)
+    expect(skills).toHaveLength(0)
+  })
+
 // --- parseFrontmatter (tested indirectly via discoverSkillsFromMarketplace) ---
 // The parseFrontmatter function is not exported, but we test it through skill discovery.
 // Additional frontmatter edge cases are covered in github.test.ts since it shares the same logic.
