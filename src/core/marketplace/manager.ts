@@ -268,9 +268,16 @@ export async function getMarketplaceManifest(
   return manifest
 }
 
-/** Derive a filesystem-safe cache key from a marketplace name */
-function safeCacheKey(name: string): string {
-  return name.replace(/[/\\]/g, '-')
+/** Derive a filesystem-safe cache key from a marketplace — includes gitUrl and branch to avoid collisions */
+function safeCacheKey(marketplace: Marketplace): string {
+  const parts = [marketplace.name]
+  if (marketplace.type === 'git' && marketplace.gitUrl) {
+    parts.push(marketplace.gitUrl.replace(/[/\\:@]/g, '-'))
+  }
+  if (marketplace.branch) {
+    parts.push(marketplace.branch)
+  }
+  return parts.join('__').replace(/[^a-zA-Z0-9_.-]/g, '-')
 }
 
 /** Get or cache manifest for a Marketplace object (no config lookup) */
@@ -279,7 +286,7 @@ export async function getManifestForMarketplace(
   options: { refresh?: boolean } = {},
 ): Promise<MarketplaceManifest> {
   await ensureConfigDir()
-  const cachePath = path.join(getCacheDir(), `${safeCacheKey(marketplace.name)}.json`)
+  const cachePath = path.join(getCacheDir(), `${safeCacheKey(marketplace)}.json`)
   const { refresh } = options
 
   // refresh === true  → always bypass cache, force git pull

@@ -433,18 +433,56 @@ describe('getManifestForMarketplace', () => {
     expect(cloneOrUpdate).toHaveBeenCalled()
   })
 
-  it('uses filesystem-safe cache key (slashes replaced)', async () => {
+  it('uses filesystem-safe cache key (includes gitUrl and avoids path separators)', async () => {
     vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
     vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
     vi.mocked(fs.readdir).mockResolvedValue([])
 
     await getManifestForMarketplace(marketplace)
 
-    // writeFile should have been called with a path containing org-skills.json, not org/skills.json
+    // writeFile should have been called with a .json path that has no raw slashes in the basename
     const writeCall = vi.mocked(fs.writeFile).mock.calls.find(
-      (call) => String(call[0]).includes('org-skills.json')
+      (call) => String(call[0]).endsWith('.json') && !String(call[0]).match(/\/[^/]+\/[^/]+\.json$/)
     )
-    expect(writeCall).toBeDefined()
+    // The cache key should contain the sanitised gitUrl so same name + different URL → different key
+    const cachePath = vi.mocked(fs.writeFile).mock.calls
+      .map((c) => String(c[0]))
+      .find((p) => p.endsWith('.json'))
+    expect(cachePath).toBeDefined()
+    expect(cachePath).toMatch(/github/)  // gitUrl part is in the key
+  })
+
+  it('different branch produces different cache key (no cache collision)', async () => {
+    const marketplaceMain: Marketplace = {
+      name: 'org/skills',
+      type: 'git',
+      gitUrl: 'https://github.com/org/skills.git',
+      branch: 'main',
+      addedAt: '2026-01-01',
+    }
+    const marketplaceDev: Marketplace = {
+      name: 'org/skills',
+      type: 'git',
+      gitUrl: 'https://github.com/org/skills.git',
+      branch: 'dev',
+      addedAt: '2026-01-01',
+    }
+
+    vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
+    vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
+    vi.mocked(fs.readdir).mockResolvedValue([])
+
+    await getManifestForMarketplace(marketplaceMain)
+    await getManifestForMarketplace(marketplaceDev)
+
+    const writtenPaths = vi.mocked(fs.writeFile).mock.calls
+      .map((c) => String(c[0]))
+      .filter((p) => p.endsWith('.json'))
+
+    expect(writtenPaths).toHaveLength(2)
+    expect(writtenPaths[0]).not.toBe(writtenPaths[1])
+    expect(writtenPaths[0]).toContain('main')
+    expect(writtenPaths[1]).toContain('dev')
   })
 })
 
