@@ -28,6 +28,7 @@ import {
   getMarketplace,
   discoverSkillsFromMarketplace,
   getMarketplaceManifest,
+  getManifestForMarketplace,
   searchSkill,
 } from '../../../src/core/marketplace/manager.js'
 import { cloneOrUpdate, getCachePathForUrl, isGitInstalled } from '../../../src/core/git.js'
@@ -342,6 +343,148 @@ describe('discoverSkillsFromMarketplace', () => {
 // --- parseFrontmatter (tested indirectly via discoverSkillsFromMarketplace) ---
 // The parseFrontmatter function is not exported, but we test it through skill discovery.
 // Additional frontmatter edge cases are covered in github.test.ts since it shares the same logic.
+
+// --- getManifestForMarketplace (cache-aware, no config lookup) ---
+
+describe('getManifestForMarketplace', () => {
+  const marketplace: Marketplace = {
+    name: 'org/skills',
+    type: 'git',
+    gitUrl: 'https://github.com/org/skills.git',
+    addedAt: '2026-01-01',
+  }
+
+  it('returns cached manifest when within TTL (default refresh=undefined)', async () => {
+    const cachedManifest = {
+      name: 'org/skills',
+      version: '1.0',
+      skills: [{ name: 'pdf', description: 'PDF', path: 'pdf', source: {} }],
+      updatedAt: new Date().toISOString(), // fresh
+    }
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(cachedManifest))
+
+    const result = await getManifestForMarketplace(marketplace)
+
+    expect(result.skills).toHaveLength(1)
+    expect(result.skills[0].name).toBe('pdf')
+    // Should NOT have called cloneOrUpdate since cache is fresh
+    expect(cloneOrUpdate).not.toHaveBeenCalled()
+  })
+
+  it('refreshes when cache is expired (default refresh=undefined)', async () => {
+    const staleManifest = {
+      name: 'org/skills',
+      version: '1.0',
+      skills: [{ name: 'old', description: 'Old', path: 'old', source: {} }],
+      updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // 2 hours ago
+    }
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(staleManifest))
+    vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
+    vi.mocked(fs.readdir).mockResolvedValue([])
+
+    const result = await getManifestForMarketplace(marketplace)
+
+    // Should have called cloneOrUpdate to refresh
+    expect(cloneOrUpdate).toHaveBeenCalled()
+    expect(result.skills).toHaveLength(0) // no skills found in empty dir
+  })
+
+  it('refresh: false returns cached manifest even if expired', async () => {
+    const staleManifest = {
+      name: 'org/skills',
+      version: '1.0',
+      skills: [{ name: 'stale', description: 'Stale', path: 'stale', source: {} }],
+      updatedAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(), // 5 hours ago
+    }
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(staleManifest))
+
+    const result = await getManifestForMarketplace(marketplace, { refresh: false })
+
+    expect(result.skills[0].name).toBe('stale')
+    expect(cloneOrUpdate).not.toHaveBeenCalled()
+  })
+
+  it('refresh: true bypasses cache and calls cloneOrUpdate', async () => {
+    const freshManifest = {
+      name: 'org/skills',
+      version: '1.0',
+      skills: [{ name: 'cached', description: 'Cached', path: 'cached', source: {} }],
+      updatedAt: new Date().toISOString(), // fresh cache
+    }
+    vi.mocked(fs.readFile).mockResolvedValue(JSON.stringify(freshManifest))
+    vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
+    vi.mocked(fs.readdir).mockResolvedValue([])
+
+    const result = await getManifestForMarketplace(marketplace, { refresh: true })
+
+    // Should have called cloneOrUpdate even though cache was fresh
+    expect(cloneOrUpdate).toHaveBeenCalled()
+  })
+
+  it('refresh: false falls through to discovery when no cache exists', async () => {
+    // fs.readFile throws ENOENT (default mock behavior)
+    vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
+    vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
+    vi.mocked(fs.readdir).mockResolvedValue([])
+
+    const result = await getManifestForMarketplace(marketplace, { refresh: false })
+
+    // Must still discover since there's no cache file to return
+    expect(cloneOrUpdate).toHaveBeenCalled()
+  })
+
+  it('uses filesystem-safe cache key (includes gitUrl and avoids path separators)', async () => {
+    vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
+    vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
+    vi.mocked(fs.readdir).mockResolvedValue([])
+
+    await getManifestForMarketplace(marketplace)
+
+    // writeFile should have been called with a .json path that has no raw slashes in the basename
+    const writeCall = vi.mocked(fs.writeFile).mock.calls.find(
+      (call) => String(call[0]).endsWith('.json') && !String(call[0]).match(/\/[^/]+\/[^/]+\.json$/)
+    )
+    // The cache key should contain the sanitised gitUrl so same name + different URL → different key
+    const cachePath = vi.mocked(fs.writeFile).mock.calls
+      .map((c) => String(c[0]))
+      .find((p) => p.endsWith('.json'))
+    expect(cachePath).toBeDefined()
+    expect(cachePath).toMatch(/github/)  // gitUrl part is in the key
+  })
+
+  it('different branch produces different cache key (no cache collision)', async () => {
+    const marketplaceMain: Marketplace = {
+      name: 'org/skills',
+      type: 'git',
+      gitUrl: 'https://github.com/org/skills.git',
+      branch: 'main',
+      addedAt: '2026-01-01',
+    }
+    const marketplaceDev: Marketplace = {
+      name: 'org/skills',
+      type: 'git',
+      gitUrl: 'https://github.com/org/skills.git',
+      branch: 'dev',
+      addedAt: '2026-01-01',
+    }
+
+    vi.mocked(fs.readFile).mockRejectedValue(new Error('ENOENT'))
+    vi.mocked(cloneOrUpdate).mockResolvedValue('/fake/cache')
+    vi.mocked(fs.readdir).mockResolvedValue([])
+
+    await getManifestForMarketplace(marketplaceMain)
+    await getManifestForMarketplace(marketplaceDev)
+
+    const writtenPaths = vi.mocked(fs.writeFile).mock.calls
+      .map((c) => String(c[0]))
+      .filter((p) => p.endsWith('.json'))
+
+    expect(writtenPaths).toHaveLength(2)
+    expect(writtenPaths[0]).not.toBe(writtenPaths[1])
+    expect(writtenPaths[0]).toContain('main')
+    expect(writtenPaths[1]).toContain('dev')
+  })
+})
 
 // --- searchSkill ---
 
